@@ -107,12 +107,26 @@ CREATE INDEX IF NOT EXISTS idx_items_asin ON pallet_items(asin);
 	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
-	// Forward-compatible: add columns that may be missing in older DBs.
-	for _, stmt := range []string{
-		`ALTER TABLE pallets ADD COLUMN IF NOT EXISTS image TEXT DEFAULT ''`,
-		`ALTER TABLE pallets ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT ''`,
+	// Forward-compatible: add columns missing in DBs created before this version.
+	existing := map[string]bool{}
+	if rows, err := db.Query("PRAGMA table_info(pallets)"); err == nil {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		for rows.Next() {
+			if rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk) == nil {
+				existing[name] = true
+			}
+		}
+		rows.Close()
+	}
+	for col, stmt := range map[string]string{
+		"image":     `ALTER TABLE pallets ADD COLUMN image TEXT DEFAULT ''`,
+		"condition": `ALTER TABLE pallets ADD COLUMN condition TEXT DEFAULT ''`,
 	} {
-		db.Exec(stmt) // ignore error — column already exists or unsupported version
+		if !existing[col] {
+			db.Exec(stmt)
+		}
 	}
 	return nil
 }
