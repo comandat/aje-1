@@ -86,6 +86,12 @@
 
   .empty { text-align: center; padding: 60px 24px; color: var(--gray); }
   .empty p { margin-top: 8px; font-size: 13px; }
+  .btn-est {
+    margin-left: 6px; padding: 2px 9px; font-size: 11px; font-weight: 600;
+    background: var(--blue); color: #fff; border: none; border-radius: 4px;
+    cursor: pointer; vertical-align: middle;
+  }
+  .btn-est:hover { opacity: .85; }
 </style>
 </head>
 <body>
@@ -153,14 +159,20 @@ function conditionTag(c) {
   return `<span class="tag tag-gray">${c}</span>`;
 }
 
-function statusPill(p) {
+function statusCell(p) {
+  let pill;
   switch (p.estimate_status) {
-    case 'done':        return '<span class="tag tag-green">complet</span>';
-    case 'partial':     return '<span class="tag tag-yellow">parțial</span>';
-    case 'in_progress': return `<span class="tag tag-blue">se estimează ${p.resolved_count}/${p.items_count}</span>`;
-    case 'error':       return '<span class="tag tag-red">eroare</span>';
-    default:            return '<span class="tag tag-gray">neestimat</span>';
+    case 'done':        pill = '<span class="tag tag-green">complet</span>'; break;
+    case 'partial':     pill = '<span class="tag tag-yellow">parțial</span>'; break;
+    case 'in_progress': pill = `<span class="tag tag-blue">se estimează ${p.resolved_count}/${p.items_count}</span>`; break;
+    case 'error':       pill = '<span class="tag tag-red">eroare</span>'; break;
+    default:            pill = '<span class="tag tag-gray">neestimat</span>'; break;
   }
+  const canEstimate = !p.estimate_status || p.estimate_status === 'error';
+  const btn = canEstimate
+    ? `<button class="btn-est" onclick="estimateOne('${p.sku}')">Estimează</button>`
+    : '';
+  return pill + btn;
 }
 
 function imgCell(p) {
@@ -199,7 +211,7 @@ function render(pallets) {
       <td class="num">${money(p.estimated_sale_price)}</td>
       <td class="num ${p.recommended_bid ? 'bid-'+c : ''}">${money(p.recommended_bid)}</td>
       <td class="num"><span class="bid-${c}">${money(p.current_bid)}</span>${win}</td>
-      <td>${statusPill(p)}</td>
+      <td>${statusCell(p)}</td>
     </tr>`;
   }).join('');
 }
@@ -209,6 +221,11 @@ async function load() {
     const r = await fetch('/api/pallets');
     render(await r.json());
   } catch (e) { console.error(e); }
+}
+
+async function estimateOne(sku) {
+  await fetch(`/api/estimate/${encodeURIComponent(sku)}`, { method: 'POST' });
+  fastPoll();
 }
 
 async function estimate() {

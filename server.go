@@ -15,6 +15,7 @@ func (a *App) serve() error {
 	mux.HandleFunc("GET /{$}", a.handleIndex)
 	mux.HandleFunc("GET /api/pallets", a.handleListPallets)
 	mux.HandleFunc("POST /api/estimate", a.handleEstimateAll)
+	mux.HandleFunc("POST /api/estimate/{sku}", a.handleEstimateOne)
 	mux.HandleFunc("GET /api/pallet/{sku}", a.handlePalletOne)
 	mux.HandleFunc("POST /api/competition-callback", a.handleCallback)
 	mux.HandleFunc("POST /api/refresh", a.handleRefresh)
@@ -76,6 +77,15 @@ func (a *App) handlePalletOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, p)
+}
+
+func (a *App) handleEstimateOne(w http.ResponseWriter, r *http.Request) {
+	if !a.estimationEnabled() {
+		http.Error(w, "n8n postgres gateway not configured", http.StatusServiceUnavailable)
+		return
+	}
+	go a.estimatePallet(r.PathValue("sku"))
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (a *App) handleCallback(w http.ResponseWriter, r *http.Request) {
