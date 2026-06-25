@@ -86,12 +86,29 @@
 
   .empty { text-align: center; padding: 60px 24px; color: var(--gray); }
   .empty p { margin-top: 8px; font-size: 13px; }
+  #tip {
+    display: none; position: fixed; z-index: 9999; pointer-events: none;
+    background: #202124; color: #fff; padding: 8px 12px; border-radius: 6px;
+    font-size: 12px; max-width: 420px; word-break: break-word; line-height: 1.5;
+    box-shadow: 0 3px 10px rgba(0,0,0,.35);
+  }
   .btn-est {
     margin-left: 6px; padding: 2px 9px; font-size: 11px; font-weight: 600;
     background: var(--blue); color: #fff; border: none; border-radius: 4px;
     cursor: pointer; vertical-align: middle;
   }
   .btn-est:hover { opacity: .85; }
+  .spinner {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid currentColor; border-top-color: transparent;
+    animation: spin .6s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+    background: var(--blue-bg); color: var(--blue);
+  }
 </style>
 </head>
 <body>
@@ -104,6 +121,7 @@
   <button class="btn btn-primary" id="estimate-btn" onclick="estimate()">Estimează paleții de mâine</button>
 </header>
 
+<div id="tip"></div>
 <div class="wrap">
   <div class="card">
     <div id="empty" class="empty" style="display:none">
@@ -159,14 +177,31 @@ function conditionTag(c) {
   return `<span class="tag tag-gray">${c}</span>`;
 }
 
+const pendingSKUs = new Set();
+
+function stepText(p) {
+  if (pendingSKUs.has(p.sku) && !p.estimate_status) return 'Se pornește…';
+  if (!p.items_count) return 'Se descarcă manifestul…';
+  if (!p.resolved_count) return 'Se caută prețuri…';
+  if (p.resolved_count < p.items_count) return `Se procesează produsele (${p.resolved_count}/${p.items_count})…`;
+  return 'Se finalizează…';
+}
+
 function statusCell(p) {
+  const loading = p.estimate_status === 'in_progress' || (pendingSKUs.has(p.sku) && !p.estimate_status);
+  if (loading) {
+    return `<span class="step-tag"><span class="spinner"></span>${stepText(p)}</span>`;
+  }
   let pill;
   switch (p.estimate_status) {
-    case 'done':        pill = '<span class="tag tag-green">complet</span>'; break;
-    case 'partial':     pill = '<span class="tag tag-yellow">parțial</span>'; break;
-    case 'in_progress': pill = `<span class="tag tag-blue">se estimează ${p.resolved_count}/${p.items_count}</span>`; break;
-    case 'error':       pill = '<span class="tag tag-red">eroare</span>'; break;
-    default:            pill = '<span class="tag tag-gray">neestimat</span>'; break;
+    case 'done':    pill = '<span class="tag tag-green">complet</span>'; break;
+    case 'partial': pill = '<span class="tag tag-yellow">parțial</span>'; break;
+    case 'error': {
+      const tip = p.error_message ? ` data-tip="${p.error_message.replace(/"/g,'&quot;')}"` : '';
+      pill = `<span class="tag tag-red" style="cursor:help"${tip}>eroare ⓘ</span>`;
+      break;
+    }
+    default: pill = '<span class="tag tag-gray">neestimat</span>'; break;
   }
   const canEstimate = !p.estimate_status || p.estimate_status === 'error';
   const btn = canEstimate
@@ -182,7 +217,12 @@ function imgCell(p) {
   return '<div class="img-placeholder">📦</div>';
 }
 
+let lastPallets = [];
+
 function render(pallets) {
+  lastPallets = pallets;
+  // clean up pending once backend confirms in_progress or final status
+  pallets.forEach(p => { if (p.estimate_status) pendingSKUs.delete(p.sku); });
   const estimated = pallets.filter(p => p.estimate_status === 'done' || p.estimate_status === 'partial').length;
   const inProgress = pallets.filter(p => p.estimate_status === 'in_progress').length;
   let summary = `${pallets.length} paleți`;
@@ -225,6 +265,8 @@ async function load() {
 }
 
 async function estimateOne(sku) {
+  pendingSKUs.add(sku);
+  render(lastPallets); // arată spinnerul imediat
   await fetch(`/api/estimate/${encodeURIComponent(sku)}`, { method: 'POST' });
   fastPoll();
 }
@@ -232,6 +274,9 @@ async function estimateOne(sku) {
 async function estimate() {
   const btn = document.getElementById('estimate-btn');
   btn.disabled = true; btn.textContent = 'Se estimează…';
+  lastPallets.filter(p => !p.estimate_status || p.estimate_status === 'error')
+    .forEach(p => pendingSKUs.add(p.sku));
+  render(lastPallets); // spinere imediate pe toate
   try { await fetch('/api/estimate', { method: 'POST' }); } catch (e) { console.error(e); }
   fastPoll();
   setTimeout(() => { btn.disabled = false; btn.textContent = 'Estimează paleții de mâine'; }, 4000);
@@ -257,6 +302,20 @@ function syncHeadHeight() {
 }
 syncHeadHeight();
 addEventListener('resize', syncHeadHeight);
+
+const tip = document.getElementById('tip');
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el) { tip.textContent = el.dataset.tip; tip.style.display = 'block'; }
+  else tip.style.display = 'none';
+});
+document.addEventListener('mousemove', e => {
+  if (tip.style.display !== 'block') return;
+  const x = Math.min(e.clientX + 14, window.innerWidth  - tip.offsetWidth  - 8);
+  const y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+});
 
 load();
 tick();
