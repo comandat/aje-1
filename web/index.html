@@ -55,11 +55,6 @@
   <button id="refresh-btn" onclick="refresh()" style="background:#5f6368">Reîncarcă lista</button>
 </header>
 
-<div id="hero" class="hero" style="display:none">
-  <button onclick="estimate()">Estimează paleții de mâine</button>
-  <p>Avem <b id="hero-count">0</b> paleți pentru mâine. Apasă pentru a calcula prețul estimat de vânzare și prețul recomandat de licitație.</p>
-</div>
-
 <table id="tbl" style="display:none">
   <thead><tr>
     <th>Palet</th><th>Se termină</th><th class="num">RRP</th>
@@ -109,11 +104,7 @@ function render(pallets) {
   document.getElementById('summary').textContent =
     `${pallets.length} paleți · ${estimated} estimați · actualizat ${new Date().toLocaleTimeString('ro-RO')}`;
 
-  const noneEstimated = pallets.length > 0 && estimated === 0
-    && !pallets.some(p => p.estimate_status === 'in_progress');
-  document.getElementById('hero').style.display = noneEstimated ? 'block' : 'none';
-  document.getElementById('hero-count').textContent = pallets.length;
-  document.getElementById('tbl').style.display = pallets.length && !noneEstimated ? 'table' : 'none';
+  document.getElementById('tbl').style.display = pallets.length ? 'table' : 'none';
 
   document.getElementById('rows').innerHTML = pallets.map(p => {
     const c = bidClass(p);
