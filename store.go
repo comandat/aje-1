@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS pallets (
   current_bid_user_id  INTEGER,
   currency             TEXT,
   auction_url          TEXT,
+  image                TEXT DEFAULT '',
+  condition            TEXT DEFAULT '',
   estimated_sale_price REAL,
   recommended_bid      REAL,
   estimate_status      TEXT DEFAULT '',
@@ -102,9 +104,15 @@ CREATE TABLE IF NOT EXISTS pallet_items (
 );
 CREATE INDEX IF NOT EXISTS idx_items_asin ON pallet_items(asin);
 `
-	_, err := db.Exec(schema)
-	if err != nil {
+	if _, err := db.Exec(schema); err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	// Forward-compatible: add columns that may be missing in older DBs.
+	for _, stmt := range []string{
+		`ALTER TABLE pallets ADD COLUMN IF NOT EXISTS image TEXT DEFAULT ''`,
+		`ALTER TABLE pallets ADD COLUMN IF NOT EXISTS condition TEXT DEFAULT ''`,
+	} {
+		db.Exec(stmt) // ignore error — column already exists or unsupported version
 	}
 	return nil
 }
@@ -114,25 +122,26 @@ CREATE INDEX IF NOT EXISTS idx_items_asin ON pallet_items(asin);
 func (a *App) upsertPallet(p Pallet) error {
 	const q = `
 INSERT INTO pallets (sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty,
-  bid_count, current_bid, current_bid_user_id, currency, auction_url, estimate_status, updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',?)
+  bid_count, current_bid, current_bid_user_id, currency, auction_url, image, condition, estimate_status, updated_at)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'',?)
 ON CONFLICT(sku) DO UPDATE SET
   manifest_sku=excluded.manifest_sku, title=excluded.title, country=excluded.country,
   end_at=excluded.end_at, start_at=excluded.start_at, rrp=excluded.rrp, weight=excluded.weight,
   qty=excluded.qty, bid_count=excluded.bid_count, current_bid=excluded.current_bid,
   current_bid_user_id=excluded.current_bid_user_id, currency=excluded.currency,
-  auction_url=excluded.auction_url, updated_at=excluded.updated_at;`
+  auction_url=excluded.auction_url, image=excluded.image, condition=excluded.condition,
+  updated_at=excluded.updated_at;`
 	_, err := a.db.Exec(q, p.SKU, p.ManifestSKU, p.Title, p.Country, p.EndAt, p.StartAt,
 		p.RRP, p.Weight, p.Qty, p.BidCount, p.CurrentBid, p.CurrentBidUserID, p.Currency,
-		p.AuctionURL, nowISO())
+		p.AuctionURL, p.Image, p.Condition, nowISO())
 	return err
 }
 
 func (a *App) getPallet(sku string) (*Pallet, error) {
 	const q = `
 SELECT sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty, bid_count,
-  current_bid, current_bid_user_id, currency, auction_url, estimated_sale_price,
-  recommended_bid, estimate_status, estimated_at,
+  current_bid, current_bid_user_id, currency, auction_url, image, condition,
+  estimated_sale_price, recommended_bid, estimate_status, estimated_at,
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku),
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1)
 FROM pallets p WHERE sku=?;`
@@ -142,8 +151,8 @@ FROM pallets p WHERE sku=?;`
 func (a *App) listPallets() ([]Pallet, error) {
 	const q = `
 SELECT sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty, bid_count,
-  current_bid, current_bid_user_id, currency, auction_url, estimated_sale_price,
-  recommended_bid, estimate_status, estimated_at,
+  current_bid, current_bid_user_id, currency, auction_url, image, condition,
+  estimated_sale_price, recommended_bid, estimate_status, estimated_at,
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku),
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1)
 FROM pallets p ORDER BY end_at ASC;`
@@ -195,7 +204,8 @@ func scanPallet(row rowScanner, ourUserID int64) (*Pallet, error) {
 	var estimatedAt sql.NullString
 	err := row.Scan(&p.SKU, &p.ManifestSKU, &p.Title, &p.Country, &p.EndAt, &p.StartAt,
 		&p.RRP, &p.Weight, &p.Qty, &p.BidCount, &p.CurrentBid, &p.CurrentBidUserID,
-		&p.Currency, &p.AuctionURL, &estSale, &recBid, &p.EstimateStatus, &estimatedAt,
+		&p.Currency, &p.AuctionURL, &p.Image, &p.Condition,
+		&estSale, &recBid, &p.EstimateStatus, &estimatedAt,
 		&p.ItemsCount, &p.ResolvedCount)
 	if err != nil {
 		return nil, err

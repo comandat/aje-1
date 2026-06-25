@@ -31,6 +31,8 @@ type Pallet struct {
 	CurrentBidUserID   int64    `json:"current_bid_user_id"`
 	Currency           string   `json:"currency"`
 	AuctionURL         string   `json:"auction_url"`
+	Image              string   `json:"image"`
+	Condition          string   `json:"condition"`
 	EstimatedSalePrice *float64 `json:"estimated_sale_price"`
 	RecommendedBid     *float64 `json:"recommended_bid"`
 	EstimateStatus     string   `json:"estimate_status"`
@@ -91,12 +93,22 @@ type rawPallet struct {
 		BidPrice flexFloat `json:"bid_price"`
 		UserID   int64     `json:"user_id"`
 	} `json:"current_bid"`
+	Manifest struct {
+		ProductFirstImage struct {
+			ThumbnailURL string `json:"product_image_thumbnail_url"`
+		} `json:"product_first_image"`
+		ConditionNames []string `json:"condition_names"`
+	} `json:"manifest"`
 }
 
 func (rp rawPallet) toPallet() Pallet {
 	bid := float64(rp.LatestBidPrice)
 	if bid == 0 {
 		bid = float64(rp.CurrentBid.BidPrice)
+	}
+	condition := ""
+	if len(rp.Manifest.ConditionNames) > 0 {
+		condition = rp.Manifest.ConditionNames[0]
 	}
 	return Pallet{
 		SKU:              rp.SKU,
@@ -113,6 +125,8 @@ func (rp rawPallet) toPallet() Pallet {
 		CurrentBidUserID: rp.CurrentBid.UserID,
 		Currency:         rp.Currency,
 		AuctionURL:       rp.AuctionURL,
+		Image:            rp.Manifest.ProductFirstImage.ThumbnailURL,
+		Condition:        condition,
 	}
 }
 
