@@ -10,6 +10,5 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates && mkdir -p /data
 COPY --from=builder /app/estimator /estimator
 ENV DB_PATH=/data/auctions.db
-VOLUME /data
 EXPOSE 8080
 ENTRYPOINT ["/estimator"]

@@ -62,10 +62,8 @@ func (a *App) handleEstimateAll(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]int{"launched": n})
 }
 
-// handlePalletOne backs the Chrome plugin. It returns the pallet's estimate and,
-// if the pallet is unknown or not yet estimated, kicks estimation off in the
-// background (the plugin then polls). ponytail: GET with a side effect, on
-// purpose — keeps the extension to a single endpoint.
+// handlePalletOne backs the Chrome plugin. Returns the current estimate state;
+// never auto-starts estimation (user triggers that from the dashboard).
 func (a *App) handlePalletOne(w http.ResponseWriter, r *http.Request) {
 	sku := r.PathValue("sku")
 	p, err := a.getPallet(sku)
@@ -73,23 +71,9 @@ func (a *App) handlePalletOne(w http.ResponseWriter, r *http.Request) {
 		httpError(w, err)
 		return
 	}
-
 	if p == nil {
-		// Pallet not in our tomorrow set — the user is browsing some other lot.
-		if err := a.upsertPallet(Pallet{SKU: sku, ManifestSKU: deriveManifestSKU(sku)}); err != nil {
-			httpError(w, err)
-			return
-		}
-		if a.estimationEnabled() {
-			go a.estimatePallet(sku)
-		}
-		p, _ = a.getPallet(sku)
-		writeJSON(w, p)
+		writeJSON(w, map[string]string{"estimate_status": "not_found"})
 		return
-	}
-
-	if a.estimationEnabled() && (p.EstimateStatus == "" || p.EstimateStatus == "error") {
-		go a.estimatePallet(sku)
 	}
 	writeJSON(w, p)
 }
