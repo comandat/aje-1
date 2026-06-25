@@ -44,7 +44,7 @@
     text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
     text-transform: uppercase; letter-spacing: .5px; color: var(--gray);
     background: #f8f9fa; border-bottom: 1px solid var(--line);
-    position: sticky; top: 57px; /* header height */
+    position: sticky; top: var(--head-h, 57px); z-index: 5;
   }
   td { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
   tr:last-child td { border-bottom: none; }
@@ -190,6 +190,7 @@ function render(pallets) {
   if (inProgress) summary += ` · ${inProgress} în curs`;
   summary += ` · actualizat ${new Date().toLocaleTimeString('ro-RO')}`;
   document.getElementById('summary').textContent = summary;
+  syncHeadHeight();
 
   document.getElementById('empty').style.display = pallets.length === 0 ? 'block' : 'none';
   document.getElementById('tbl').style.display = pallets.length ? 'table' : 'none';
@@ -247,6 +248,15 @@ function tick() {
   load();
   setTimeout(tick, Date.now() < fastUntil ? 4000 : 30000);
 }
+
+// Pin the column-header row flush under the real header (height varies with
+// viewport/zoom/wrap), so the two sticky bars never overlap.
+function syncHeadHeight() {
+  const h = document.querySelector('header').offsetHeight;
+  document.documentElement.style.setProperty('--head-h', h + 'px');
+}
+syncHeadHeight();
+addEventListener('resize', syncHeadHeight);
 
 load();
 tick();
