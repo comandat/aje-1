@@ -36,6 +36,7 @@ type Pallet struct {
 	EstimatedSalePrice *float64 `json:"estimated_sale_price"`
 	RecommendedBid     *float64 `json:"recommended_bid"`
 	EstimateStatus     string   `json:"estimate_status"`
+	ErrorMessage       string   `json:"error_message"`
 	EstimatedAt        *string  `json:"estimated_at"`
 	Winning            bool     `json:"winning"`
 	ItemsCount         int      `json:"items_count"`

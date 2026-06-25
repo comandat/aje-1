@@ -153,7 +153,7 @@ func (a *App) estimatePallet(sku string) error {
 
 	if p.ItemsCount == 0 {
 		if err := a.ensureItems(sku, p.ManifestSKU); err != nil {
-			a.setStatus(sku, "error")
+			a.setError(sku, err.Error())
 			return err
 		}
 	}
@@ -162,7 +162,7 @@ func (a *App) estimatePallet(sku string) error {
 	asins := a.palletASINs(sku)
 	known, err := a.knownPrices(asins)
 	if err != nil {
-		a.setStatus(sku, "error")
+		a.setError(sku, fmt.Sprintf("lookup prețuri: %v", err))
 		return fmt.Errorf("postgres dedup: %w", err)
 	}
 	for asin, price := range known {
@@ -484,5 +484,12 @@ func (a *App) setStatus(sku, status string) {
 	if _, err := a.db.Exec(`UPDATE pallets SET estimate_status=?, estimated_at=?, updated_at=? WHERE sku=?`,
 		status, nowISO(), nowISO(), sku); err != nil {
 		log.Printf("setStatus %s=%s: %v", sku, status, err)
+	}
+}
+
+func (a *App) setError(sku string, msg string) {
+	if _, err := a.db.Exec(`UPDATE pallets SET estimate_status='error', error_message=?, estimated_at=?, updated_at=? WHERE sku=?`,
+		msg, nowISO(), nowISO(), sku); err != nil {
+		log.Printf("setError %s: %v", sku, err)
 	}
 }

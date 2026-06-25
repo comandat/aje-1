@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS pallets (
   estimated_sale_price REAL,
   recommended_bid      REAL,
   estimate_status      TEXT DEFAULT '',
+  error_message        TEXT DEFAULT '',
   estimated_at         TEXT,
   updated_at           TEXT
 );
@@ -121,8 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_items_asin ON pallet_items(asin);
 		rows.Close()
 	}
 	for col, stmt := range map[string]string{
-		"image":     `ALTER TABLE pallets ADD COLUMN image TEXT DEFAULT ''`,
-		"condition": `ALTER TABLE pallets ADD COLUMN condition TEXT DEFAULT ''`,
+		"image":         `ALTER TABLE pallets ADD COLUMN image TEXT DEFAULT ''`,
+		"condition":     `ALTER TABLE pallets ADD COLUMN condition TEXT DEFAULT ''`,
+		"error_message": `ALTER TABLE pallets ADD COLUMN error_message TEXT DEFAULT ''`,
 	} {
 		if !existing[col] {
 			db.Exec(stmt)
@@ -155,7 +157,7 @@ func (a *App) getPallet(sku string) (*Pallet, error) {
 	const q = `
 SELECT sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty, bid_count,
   current_bid, current_bid_user_id, currency, auction_url, image, condition,
-  estimated_sale_price, recommended_bid, estimate_status, estimated_at,
+  estimated_sale_price, recommended_bid, estimate_status, error_message, estimated_at,
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku),
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1)
 FROM pallets p WHERE sku=?;`
@@ -166,7 +168,7 @@ func (a *App) listPallets() ([]Pallet, error) {
 	const q = `
 SELECT sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty, bid_count,
   current_bid, current_bid_user_id, currency, auction_url, image, condition,
-  estimated_sale_price, recommended_bid, estimate_status, estimated_at,
+  estimated_sale_price, recommended_bid, estimate_status, error_message, estimated_at,
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku),
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1)
 FROM pallets p ORDER BY end_at ASC;`
@@ -219,7 +221,7 @@ func scanPallet(row rowScanner, ourUserID int64) (*Pallet, error) {
 	err := row.Scan(&p.SKU, &p.ManifestSKU, &p.Title, &p.Country, &p.EndAt, &p.StartAt,
 		&p.RRP, &p.Weight, &p.Qty, &p.BidCount, &p.CurrentBid, &p.CurrentBidUserID,
 		&p.Currency, &p.AuctionURL, &p.Image, &p.Condition,
-		&estSale, &recBid, &p.EstimateStatus, &estimatedAt,
+		&estSale, &recBid, &p.EstimateStatus, &p.ErrorMessage, &estimatedAt,
 		&p.ItemsCount, &p.ResolvedCount)
 	if err != nil {
 		return nil, err
