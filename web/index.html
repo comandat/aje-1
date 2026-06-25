@@ -36,7 +36,7 @@
   .card {
     background: var(--surface); border-radius: 10px;
     box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.04);
-    overflow: hidden;
+    overflow: clip; /* clip without creating a scroll container — keeps th sticky working */
   }
 
   table { width: 100%; border-collapse: collapse; }
