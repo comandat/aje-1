@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estimator Paleti — Comandat</title>
+<style>
+  :root {
+    --green: #188038; --green-bg: #e6f4ea;
+    --yellow: #b06000; --yellow-bg: #fef7e0;
+    --red: #c5221f; --red-bg: #fce8e6;
+    --gray: #5f6368; --line: #e0e0e0; --blue: #1a73e8;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Arial, sans-serif; margin: 0; background: #f6f7f9; color: #202124; }
+  header { background: #fff; border-bottom: 1px solid var(--line); padding: 16px 24px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; }
+  .spacer { flex: 1; }
+  .meta { font-size: 12px; color: var(--gray); }
+  button { background: var(--blue); color: #fff; border: none; padding: 10px 18px;
+    border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+  button:disabled { opacity: .6; cursor: default; }
+  .hero { text-align: center; padding: 48px 24px; }
+  .hero button { padding: 16px 32px; font-size: 16px; }
+  .hero p { color: var(--gray); margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; }
+  th, td { text-align: left; padding: 10px 14px; font-size: 13px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--gray); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; background: #fafafa; }
+  td.title { white-space: normal; max-width: 360px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .row-green { border-left: 4px solid var(--green); }
+  .row-yellow { border-left: 4px solid var(--yellow); }
+  .row-red { border-left: 4px solid var(--red); }
+  .row-gray { border-left: 4px solid var(--line); }
+  .bid-green { color: var(--green); font-weight: 700; }
+  .bid-yellow { color: var(--yellow); font-weight: 700; }
+  .bid-red { color: var(--red); font-weight: 700; }
+  .win { background: var(--green-bg); color: var(--green); }
+  .lose { background: var(--red-bg); color: var(--red); }
+  .muted { color: var(--gray); }
+  .pill-done { background: var(--green-bg); color: var(--green); }
+  .pill-partial { background: var(--yellow-bg); color: var(--yellow); }
+  .pill-progress { background: #e8f0fe; color: var(--blue); }
+  .pill-error { background: var(--red-bg); color: var(--red); }
+</style>
+</head>
+<body>
+<header>
+  <h1>📦 Estimator Paleti</h1>
+  <span class="meta" id="summary">Se încarcă…</span>
+  <span class="spacer"></span>
+  <button id="estimate-btn" onclick="estimate()">Estimează paleții de mâine</button>
+  <button id="refresh-btn" onclick="refresh()" style="background:#5f6368">Reîncarcă lista</button>
+</header>
+
+<div id="hero" class="hero" style="display:none">
+  <button onclick="estimate()">Estimează paleții de mâine</button>
+  <p>Avem <b id="hero-count">0</b> paleți pentru mâine. Apasă pentru a calcula prețul estimat de vânzare și prețul recomandat de licitație.</p>
+</div>
+
+<table id="tbl" style="display:none">
+  <thead><tr>
+    <th>Palet</th><th>Se termină</th><th class="num">RRP</th>
+    <th class="num">Preț est. vânzare</th><th class="num">Bid recomandat</th>
+    <th class="num">Bid curent</th><th>Status</th>
+  </tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<script>
+const fmt = new Intl.NumberFormat('ro-RO', { maximumFractionDigits: 0 });
+const money = v => v == null ? '—' : fmt.format(v) + ' lei';
+
+function endLabel(iso) {
+  if (!iso) return '—';
+  const end = new Date(iso), now = new Date();
+  const mins = Math.round((end - now) / 60000);
+  let rel;
+  if (mins < 0) rel = 'încheiat';
+  else if (mins < 60) rel = `în ${mins}m`;
+  else if (mins < 1440) rel = `în ${Math.floor(mins/60)}h ${mins%60}m`;
+  else rel = `în ${Math.floor(mins/1440)}z`;
+  const t = end.toLocaleString('ro-RO', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  return `${t} <span class="muted">(${rel})</span>`;
+}
+
+// Color rule: current bid vs recommended bid.
+function bidClass(p) {
+  if (p.recommended_bid == null || !p.current_bid) return 'gray';
+  if (p.current_bid < p.recommended_bid) return 'green';
+  if (p.current_bid <= p.recommended_bid * 1.10) return 'yellow';
+  return 'red';
+}
+
+function statusPill(p) {
+  switch (p.estimate_status) {
+    case 'done': return '<span class="tag pill-done">complet</span>';
+    case 'partial': return '<span class="tag pill-partial">parțial</span>';
+    case 'in_progress': return `<span class="tag pill-progress">se estimează ${p.resolved_count}/${p.items_count}</span>`;
+    case 'error': return '<span class="tag pill-error">eroare</span>';
+    default: return '<span class="tag muted">neestimat</span>';
+  }
+}
+
+function render(pallets) {
+  const estimated = pallets.filter(p => p.estimate_status === 'done' || p.estimate_status === 'partial').length;
+  document.getElementById('summary').textContent =
+    `${pallets.length} paleți · ${estimated} estimați · actualizat ${new Date().toLocaleTimeString('ro-RO')}`;
+
+  const noneEstimated = pallets.length > 0 && estimated === 0
+    && !pallets.some(p => p.estimate_status === 'in_progress');
+  document.getElementById('hero').style.display = noneEstimated ? 'block' : 'none';
+  document.getElementById('hero-count').textContent = pallets.length;
+  document.getElementById('tbl').style.display = pallets.length && !noneEstimated ? 'table' : 'none';
+
+  document.getElementById('rows').innerHTML = pallets.map(p => {
+    const c = bidClass(p);
+    const win = p.current_bid ? (p.winning
+      ? '<span class="tag win">câștigăm</span>'
+      : '<span class="tag lose">pierdem</span>') : '';
+    return `<tr class="row-${c}">
+      <td class="title"><a href="${p.auction_url||'#'}" target="_blank">${p.title || p.sku}</a></td>
+      <td>${endLabel(p.end_at)}</td>
+      <td class="num">${money(p.rrp)}</td>
+      <td class="num">${money(p.estimated_sale_price)}</td>
+      <td class="num">${money(p.recommended_bid)}</td>
+      <td class="num"><span class="bid-${c}">${money(p.current_bid)}</span> ${win}</td>
+      <td>${statusPill(p)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/pallets');
+    render(await r.json());
+  } catch (e) { console.error(e); }
+}
+
+async function estimate() {
+  const btn = document.getElementById('estimate-btn');
+  btn.disabled = true; btn.textContent = 'Se estimează…';
+  try { await fetch('/api/estimate', { method: 'POST' }); } catch (e) { console.error(e); }
+  fastPoll();
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Estimează paleții de mâine'; }, 4000);
+}
+
+async function refresh() {
+  await fetch('/api/refresh', { method: 'POST' });
+  setTimeout(load, 2000);
+}
+
+// Poll every 4s for 3 minutes while an estimate run is active, then back to 30s.
+let fastUntil = 0;
+function fastPoll() { fastUntil = Date.now() + 180000; }
+function tick() {
+  load();
+  setTimeout(tick, Date.now() < fastUntil ? 4000 : 30000);
+}
+
+load();
+tick();
+</script>
+</body>
+</html>
