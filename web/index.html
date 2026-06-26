@@ -221,9 +221,10 @@ function statusCell(p) {
     return `<span class="step-tag"><span class="spinner"></span>${stepText(p)}</span>`;
   }
   let pill;
+  const count = p.items_count ? ` <span class="muted" style="font-size:11px">${p.priced_count||0}/${p.items_count}</span>` : '';
   switch (p.estimate_status) {
-    case 'done':    pill = '<span class="tag tag-green">complet</span>'; break;
-    case 'partial': pill = '<span class="tag tag-yellow">parțial</span>'; break;
+    case 'done':    pill = '<span class="tag tag-green">complet</span>' + count; break;
+    case 'partial': pill = '<span class="tag tag-yellow">parțial</span>' + count; break;
     case 'error': {
       const tip = p.error_message ? ` data-tip="${p.error_message.replace(/"/g,'&quot;')}"` : '';
       pill = `<span class="tag tag-red" style="cursor:help"${tip}>eroare ⓘ</span>`;

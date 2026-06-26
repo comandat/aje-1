@@ -98,9 +98,10 @@ CREATE TABLE IF NOT EXISTS pallet_items (
   category     TEXT,
   subcategory  TEXT,
   unit_weight  TEXT,
-  price        REAL DEFAULT 0,
-  resolved     INTEGER DEFAULT 0,
-  requested    INTEGER DEFAULT 0,
+  price         REAL DEFAULT 0,
+  resolved      INTEGER DEFAULT 0,
+  requested     INTEGER DEFAULT 0,
+  skip_estimate INTEGER DEFAULT 0,
   PRIMARY KEY (sku, asin)
 );
 CREATE INDEX IF NOT EXISTS idx_items_asin ON pallet_items(asin);
@@ -129,6 +130,22 @@ CREATE INDEX IF NOT EXISTS idx_items_asin ON pallet_items(asin);
 		if !existing[col] {
 			db.Exec(stmt)
 		}
+	}
+	// Same forward-compatible migration for pallet_items.
+	itemCols := map[string]bool{}
+	if rows, err := db.Query("PRAGMA table_info(pallet_items)"); err == nil {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		for rows.Next() {
+			if rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk) == nil {
+				itemCols[name] = true
+			}
+		}
+		rows.Close()
+	}
+	if !itemCols["skip_estimate"] {
+		db.Exec(`ALTER TABLE pallet_items ADD COLUMN skip_estimate INTEGER DEFAULT 0`)
 	}
 	return nil
 }
@@ -159,7 +176,8 @@ SELECT sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty, bi
   current_bid, current_bid_user_id, currency, auction_url, image, condition,
   estimated_sale_price, recommended_bid, estimate_status, error_message, estimated_at,
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku),
-  (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1)
+  (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1),
+  (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.price>0)
 FROM pallets p WHERE sku=?;`
 	return scanPallet(a.db.QueryRow(q, sku), a.cfg.OurUserID)
 }
@@ -170,7 +188,8 @@ SELECT sku, manifest_sku, title, country, end_at, start_at, rrp, weight, qty, bi
   current_bid, current_bid_user_id, currency, auction_url, image, condition,
   estimated_sale_price, recommended_bid, estimate_status, error_message, estimated_at,
   (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku),
-  (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1)
+  (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.resolved=1),
+  (SELECT COUNT(*) FROM pallet_items i WHERE i.sku=p.sku AND i.price>0)
 FROM pallets p ORDER BY end_at ASC;`
 	rows, err := a.db.Query(q)
 	if err != nil {
@@ -222,7 +241,7 @@ func scanPallet(row rowScanner, ourUserID int64) (*Pallet, error) {
 		&p.RRP, &p.Weight, &p.Qty, &p.BidCount, &p.CurrentBid, &p.CurrentBidUserID,
 		&p.Currency, &p.AuctionURL, &p.Image, &p.Condition,
 		&estSale, &recBid, &p.EstimateStatus, &p.ErrorMessage, &estimatedAt,
-		&p.ItemsCount, &p.ResolvedCount)
+		&p.ItemsCount, &p.ResolvedCount, &p.PricedCount)
 	if err != nil {
 		return nil, err
 	}

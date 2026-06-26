@@ -164,7 +164,7 @@ func (a *App) estimatePallet(sku string) error {
 	// Clear them so lookup + competition get another shot — the DB may have prices
 	// now (saved by sibling pallets) and competition may match on retry.
 	if p.EstimateStatus == "partial" || p.EstimateStatus == "error" {
-		if r, err := a.db.Exec(`UPDATE pallet_items SET resolved=0, requested=0 WHERE sku=? AND price<=0`, sku); err != nil {
+		if r, err := a.db.Exec(`UPDATE pallet_items SET resolved=0, requested=0 WHERE sku=? AND price<=0 AND skip_estimate=0`, sku); err != nil {
 			log.Printf("estimate %s: reset unpriced: %v", sku, err)
 		} else if n, _ := r.RowsAffected(); n > 0 {
 			log.Printf("estimate %s: re-run, reset %d unpriced items", sku, n)
@@ -193,6 +193,14 @@ func (a *App) estimatePallet(sku string) error {
 		a.setItemResolved(asin, price)
 	}
 
+	// Items with no real 2nd image: force price 0 and keep them out of competition.
+	// Runs after knownPrices so a cached visual-search price can't leak back in.
+	if r, err := a.db.Exec(`UPDATE pallet_items SET price=0, resolved=1, requested=1 WHERE sku=? AND skip_estimate=1`, sku); err == nil {
+		if n, _ := r.RowsAffected(); n > 0 {
+			log.Printf("estimate %s: %d items priced 0 (no 2nd image)", sku, n)
+		}
+	}
+
 	toRequest := a.unrequestedItems(sku)
 	log.Printf("estimate %s: %d known, %d to request from competition module", sku, len(known), len(toRequest))
 	if len(toRequest) > 0 {
@@ -217,11 +225,11 @@ func (a *App) ensureItems(sku, manifestSKU string) error {
 	for _, it := range items {
 		imgs, _ := json.Marshal(it.Images)
 		_, err := a.db.Exec(`
-INSERT INTO pallet_items (sku, asin, qty, image, title, description, images, brand, ean, category, subcategory, unit_weight)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-ON CONFLICT(sku, asin) DO UPDATE SET qty=excluded.qty`,
+INSERT INTO pallet_items (sku, asin, qty, image, title, description, images, brand, ean, category, subcategory, unit_weight, skip_estimate)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(sku, asin) DO UPDATE SET qty=excluded.qty, skip_estimate=excluded.skip_estimate`,
 			sku, it.ASIN, it.Qty, it.Image, it.Title, it.Description, string(imgs),
-			it.Brand, it.EAN, it.Category, it.Subcategory, it.UnitWeight)
+			it.Brand, it.EAN, it.Category, it.Subcategory, it.UnitWeight, it.SkipEstimate)
 		if err != nil {
 			return fmt.Errorf("insert item %s: %w", it.ASIN, err)
 		}

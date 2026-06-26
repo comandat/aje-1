@@ -41,6 +41,7 @@ type Pallet struct {
 	Winning            bool     `json:"winning"`
 	ItemsCount         int      `json:"items_count"`
 	ResolvedCount      int      `json:"resolved_count"`
+	PricedCount        int      `json:"priced_count"`
 }
 
 // ManifestItem is one (aggregated-by-ASIN) line of a pallet manifest.
@@ -56,6 +57,10 @@ type ManifestItem struct {
 	Category    string
 	Subcategory string
 	UnitWeight  string
+	// SkipEstimate is set when the manifest has no real 2nd image ("Image 2" is
+	// N/A or blank): the 1st image can't be trusted for visual search, so the
+	// item is priced 0 and never sent to the competition module.
+	SkipEstimate bool
 }
 
 // flexFloat parses a number that jobalots may send as either a JSON number
@@ -373,18 +378,30 @@ func (a *App) parseManifestXLSX(url string) ([]ManifestItem, error) {
 			image = images[0]
 		}
 
+		// No real 2nd image (Image 2 = N/A or blank, when the column exists) →
+		// don't trust the 1st image for visual search. get() already maps N/A→"".
+		skipEstimate := false
+		if i, ok := col["Image 2"]; ok {
+			img2 := ""
+			if i < len(row) {
+				img2 = strings.TrimSpace(row[i])
+			}
+			skipEstimate = img2 == "" || img2 == "N/A"
+		}
+
 		byASIN[asin] = &ManifestItem{
-			ASIN:        asin,
-			Qty:         qty,
-			Image:       image,
-			Title:       get(row, "Product Title"),
-			Description: get(row, "Product Description"),
-			Images:      images,
-			Brand:       get(row, "Brand"),
-			EAN:         get(row, "EAN"), // ponytail: kept raw; Excel may mangle long EANs to sci-notation — source-side fix.
-			Category:    get(row, "Category Name"),
-			Subcategory: get(row, "Sub Category Name"),
-			UnitWeight:  get(row, "Unit Weight (kg)"),
+			ASIN:         asin,
+			Qty:          qty,
+			Image:        image,
+			Title:        get(row, "Product Title"),
+			Description:  get(row, "Product Description"),
+			Images:       images,
+			Brand:        get(row, "Brand"),
+			EAN:          get(row, "EAN"), // ponytail: kept raw; Excel may mangle long EANs to sci-notation — source-side fix.
+			Category:     get(row, "Category Name"),
+			Subcategory:  get(row, "Sub Category Name"),
+			UnitWeight:   get(row, "Unit Weight (kg)"),
+			SkipEstimate: skipEstimate,
 		}
 		order = append(order, asin)
 	}
