@@ -231,9 +231,10 @@ function statusCell(p) {
     }
     default: pill = '<span class="tag tag-gray">neestimat</span>'; break;
   }
-  const canEstimate = !p.estimate_status || p.estimate_status === 'error';
+  const canEstimate = !p.estimate_status || p.estimate_status === 'error' || p.estimate_status === 'partial';
+  const label = (p.estimate_status === 'partial' || p.estimate_status === 'error') ? 'Reestimează' : 'Estimează';
   const btn = canEstimate
-    ? `<button class="btn-est" onclick="estimateOne('${p.sku}')">Estimează</button>`
+    ? `<button class="btn-est" onclick="estimateOne('${p.sku}')">${label}</button>`
     : '';
   return pill + btn;
 }

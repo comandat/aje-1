@@ -156,6 +156,17 @@ func (a *App) estimatePallet(sku string) error {
 		return nil
 	}
 
+	// Re-run: a previous partial/error pass left items unpriced (price 0, resolved).
+	// Clear them so lookup + competition get another shot — the DB may have prices
+	// now (saved by sibling pallets) and competition may match on retry.
+	if p.EstimateStatus == "partial" || p.EstimateStatus == "error" {
+		if r, err := a.db.Exec(`UPDATE pallet_items SET resolved=0, requested=0 WHERE sku=? AND price<=0`, sku); err != nil {
+			log.Printf("estimate %s: reset unpriced: %v", sku, err)
+		} else if n, _ := r.RowsAffected(); n > 0 {
+			log.Printf("estimate %s: re-run, reset %d unpriced items", sku, n)
+		}
+	}
+
 	if p.ItemsCount == 0 {
 		log.Printf("estimate %s: downloading manifest (%s)", sku, p.ManifestSKU)
 		if err := a.ensureItems(sku, p.ManifestSKU); err != nil {
