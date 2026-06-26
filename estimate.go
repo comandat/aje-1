@@ -140,6 +140,7 @@ func (a *App) estimatePallet(sku string) error {
 	if !a.estimationEnabled() {
 		return errors.New("n8n postgres gateway not configured")
 	}
+	log.Printf("estimate %s: starting", sku)
 	p, err := a.getPallet(sku)
 	if err != nil {
 		return err
@@ -148,11 +149,14 @@ func (a *App) estimatePallet(sku string) error {
 		return fmt.Errorf("pallet %s not found", sku)
 	}
 	if p.EstimateStatus == "done" {
+		log.Printf("estimate %s: already done, skipping", sku)
 		return nil
 	}
 
 	if p.ItemsCount == 0 {
+		log.Printf("estimate %s: downloading manifest (%s)", sku, p.ManifestSKU)
 		if err := a.ensureItems(sku, p.ManifestSKU); err != nil {
+			log.Printf("estimate %s: manifest error: %v", sku, err)
 			a.setError(sku, err.Error())
 			return err
 		}
@@ -160,8 +164,10 @@ func (a *App) estimatePallet(sku string) error {
 	a.setStatus(sku, "in_progress")
 
 	asins := a.palletASINs(sku)
+	log.Printf("estimate %s: %d ASINs in manifest, looking up known prices", sku, len(asins))
 	known, err := a.knownPrices(asins)
 	if err != nil {
+		log.Printf("estimate %s: knownPrices error: %v", sku, err)
 		a.setError(sku, fmt.Sprintf("lookup prețuri: %v", err))
 		return fmt.Errorf("postgres dedup: %w", err)
 	}
@@ -170,9 +176,12 @@ func (a *App) estimatePallet(sku string) error {
 	}
 
 	toRequest := a.unrequestedItems(sku)
+	log.Printf("estimate %s: %d known, %d to request from competition module", sku, len(known), len(toRequest))
 	if len(toRequest) > 0 {
 		a.markRequested(toRequest)
 		go a.triggerCompetition(toRequest)
+	} else {
+		log.Printf("estimate %s: all ASINs already known or requested, finalizing", sku)
 	}
 
 	a.finalizeIfReady(sku)
@@ -227,6 +236,7 @@ func (a *App) knownPrices(asins []string) (map[string]float64, error) {
 	if len(asins) == 0 {
 		return out, nil
 	}
+	log.Printf("knownPrices: sending %d ASINs to lookup webhook", len(asins))
 	body, _ := json.Marshal(map[string][]string{"asins": asins})
 	resp, err := a.http.Post(a.cfg.N8NLookupURL, "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -235,6 +245,11 @@ func (a *App) knownPrices(asins []string) (map[string]float64, error) {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
+		// n8n returns 500 when the query finds no rows — treat as empty result, not an error.
+		if strings.Contains(string(b), "No item to return was found") {
+			log.Printf("knownPrices: webhook returned 500 (no rows in DB) — treating as 0 known prices")
+			return out, nil
+		}
 		return nil, fmt.Errorf("lookup webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	if len(bytes.TrimSpace(b)) == 0 {
@@ -251,6 +266,7 @@ func (a *App) knownPrices(asins []string) (map[string]float64, error) {
 	for _, r := range rows {
 		out[strings.ToUpper(r.ASIN)] = float64(r.Price)
 	}
+	log.Printf("knownPrices: %d of %d ASINs already have prices in DB", len(out), len(asins))
 	return out, nil
 }
 
@@ -293,14 +309,15 @@ func (a *App) triggerCompetition(items []ManifestItem) {
 	payload := map[string]any{"body": map[string]any{"missingProducts": missing}}
 	b, _ := json.Marshal(payload)
 
+	log.Printf("competition: sending %d ASINs to %s", len(items), a.cfg.CompetitionURL)
 	resp, err := a.http.Post(a.cfg.CompetitionURL, "application/json", bytes.NewReader(b))
 	if err != nil {
 		log.Printf("competition trigger: %v", err)
 		return
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
-	log.Printf("competition: requested %d ASINs (status %d)", len(items), resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("competition: response status %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
 
 // onCompetitionCallback handles the async result POSTed by the module. It prices

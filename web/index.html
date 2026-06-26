@@ -216,8 +216,7 @@ function stepText(p) {
 }
 
 function statusCell(p) {
-  // pendingSKUs overrides error so re-estimating shows spinner immediately
-  const loading = p.estimate_status === 'in_progress' || pendingSKUs.has(p.sku);
+  const loading = p.estimate_status === 'in_progress' || (pendingSKUs.has(p.sku) && !p.estimate_status);
   if (loading) {
     return `<span class="step-tag"><span class="spinner"></span>${stepText(p)}</span>`;
   }
@@ -250,8 +249,8 @@ let lastPallets = [];
 
 function render(pallets) {
   lastPallets = pallets;
-  // don't remove from pendingSKUs on error — keeps spinner alive until backend confirms in_progress
-  pallets.forEach(p => { if (p.estimate_status && p.estimate_status !== 'error') pendingSKUs.delete(p.sku); });
+  // remove from pendingSKUs once backend confirms any status (optimistic update in estimateOne handles the gap)
+  pallets.forEach(p => { if (p.estimate_status) pendingSKUs.delete(p.sku); });
   if (!pallets.some(p => p.estimate_status === 'in_progress') && pendingSKUs.size === 0) fastUntil = 0;
 
   const todayYMD    = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Bucharest' });
@@ -307,7 +306,10 @@ async function load() {
 
 async function estimateOne(sku) {
   pendingSKUs.add(sku);
-  render(lastPallets); // arată spinnerul imediat
+  // Optimistic: clear local status so spinner shows immediately (render cleanup removes from
+  // pendingSKUs on any truthy status, so we need status='' to keep it there until next poll).
+  const optimistic = lastPallets.map(p => p.sku === sku ? {...p, estimate_status: '', error_message: ''} : p);
+  render(optimistic);
   await fetch(`/api/estimate/${encodeURIComponent(sku)}`, { method: 'POST' });
   fastPoll();
 }
@@ -315,9 +317,12 @@ async function estimateOne(sku) {
 async function estimate() {
   const btn = document.getElementById('estimate-btn');
   btn.disabled = true; btn.textContent = 'Se estimează…';
-  lastPallets.filter(p => !p.estimate_status || p.estimate_status === 'error')
-    .forEach(p => pendingSKUs.add(p.sku));
-  render(lastPallets); // spinere imediate pe toate
+  const toEstimate = new Set(
+    lastPallets.filter(p => !p.estimate_status || p.estimate_status === 'error').map(p => p.sku)
+  );
+  toEstimate.forEach(sku => pendingSKUs.add(sku));
+  const optimistic = lastPallets.map(p => toEstimate.has(p.sku) ? {...p, estimate_status: '', error_message: ''} : p);
+  render(optimistic);
   try { await fetch('/api/estimate', { method: 'POST' }); } catch (e) { console.error(e); }
   fastPoll();
   setTimeout(() => { btn.disabled = false; btn.textContent = 'Estimează paleții de mâine'; }, 4000);

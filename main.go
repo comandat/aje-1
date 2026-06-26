@@ -84,6 +84,9 @@ func main() {
 
 	log.Printf("estimator listening on :%s (cron disabled=%v, estimation=%v)",
 		cfg.Port, cfg.DisableCron, app.estimationEnabled())
+	log.Printf("config: competition_url=%s", cfg.CompetitionURL)
+	log.Printf("config: n8n_lookup=%s n8n_save=%s", cfg.N8NLookupURL, cfg.N8NSaveURL)
+	log.Printf("config: manifest_token_set=%v", cfg.ManifestToken != "")
 	if err := app.serve(); err != nil {
 		log.Fatalf("serve: %v", err)
 	}
