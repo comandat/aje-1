@@ -39,6 +39,17 @@
     overflow: clip; /* clip without creating a scroll container — keeps th sticky working */
   }
 
+  .tabs {
+    display: flex; border-bottom: 1px solid var(--line); background: #f8f9fa;
+  }
+  .tab {
+    padding: 11px 20px; border: none; background: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; color: var(--gray);
+    border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+  }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); background: var(--surface); }
+  .tab:hover:not(.active) { color: #3c4043; background: #f0f2f5; }
+
   table { width: 100%; border-collapse: collapse; }
   th {
     text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700;
@@ -124,9 +135,13 @@
 <div id="tip"></div>
 <div class="wrap">
   <div class="card">
+    <div class="tabs">
+      <button class="tab active" id="tab-tomorrow" onclick="setTab('tomorrow')">Licitații de mâine</button>
+      <button class="tab" id="tab-today" onclick="setTab('today')">Licitații de azi</button>
+    </div>
     <div id="empty" class="empty" style="display:none">
       <div style="font-size:32px">📭</div>
-      <p>Niciun palet pentru mâine. Apasă <b>Reîncarcă lista</b> pentru a verifica.</p>
+      <p>Niciun palet pentru această zi. Apasă <b>Reîncarcă lista</b> pentru a verifica.</p>
     </div>
     <table id="tbl" style="display:none">
       <thead><tr>
@@ -177,7 +192,20 @@ function conditionTag(c) {
   return `<span class="tag tag-gray">${c}</span>`;
 }
 
+// Returns YYYY-MM-DD in Bucharest time for an ISO UTC string.
+function ymd(iso) {
+  return iso ? new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Europe/Bucharest' }) : '';
+}
+
 const pendingSKUs = new Set();
+let activeTab = 'tomorrow';
+
+function setTab(tab) {
+  activeTab = tab;
+  document.getElementById('tab-tomorrow').classList.toggle('active', tab === 'tomorrow');
+  document.getElementById('tab-today').classList.toggle('active', tab === 'today');
+  render(lastPallets);
+}
 
 function stepText(p) {
   if (pendingSKUs.has(p.sku) && !p.estimate_status) return 'Se pornește…';
@@ -188,7 +216,8 @@ function stepText(p) {
 }
 
 function statusCell(p) {
-  const loading = p.estimate_status === 'in_progress' || (pendingSKUs.has(p.sku) && !p.estimate_status);
+  // pendingSKUs overrides error so re-estimating shows spinner immediately
+  const loading = p.estimate_status === 'in_progress' || pendingSKUs.has(p.sku);
   if (loading) {
     return `<span class="step-tag"><span class="spinner"></span>${stepText(p)}</span>`;
   }
@@ -221,23 +250,33 @@ let lastPallets = [];
 
 function render(pallets) {
   lastPallets = pallets;
-  // clean up pending once backend confirms in_progress or final status
-  pallets.forEach(p => { if (p.estimate_status) pendingSKUs.delete(p.sku); });
-  // stop fast-polling as soon as nothing is in flight
+  // don't remove from pendingSKUs on error — keeps spinner alive until backend confirms in_progress
+  pallets.forEach(p => { if (p.estimate_status && p.estimate_status !== 'error') pendingSKUs.delete(p.sku); });
   if (!pallets.some(p => p.estimate_status === 'in_progress') && pendingSKUs.size === 0) fastUntil = 0;
-  const estimated = pallets.filter(p => p.estimate_status === 'done' || p.estimate_status === 'partial').length;
-  const inProgress = pallets.filter(p => p.estimate_status === 'in_progress').length;
-  let summary = `${pallets.length} paleți`;
-  if (estimated) summary += ` · ${estimated} estimați`;
+
+  const todayYMD    = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Bucharest' });
+  const tomorrowYMD = new Date(Date.now() + 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Bucharest' });
+  const todayList    = pallets.filter(p => ymd(p.end_at) === todayYMD);
+  const tomorrowList = pallets.filter(p => ymd(p.end_at) === tomorrowYMD);
+
+  document.getElementById('tab-tomorrow').textContent = `Licitații de mâine (${tomorrowList.length})`;
+  document.getElementById('tab-today').textContent    = `Licitații de azi (${todayList.length})`;
+
+  const shown = activeTab === 'today' ? todayList : tomorrowList;
+
+  const estimated  = shown.filter(p => p.estimate_status === 'done' || p.estimate_status === 'partial').length;
+  const inProgress = shown.filter(p => p.estimate_status === 'in_progress').length;
+  let summary = `${shown.length} paleți`;
+  if (estimated)  summary += ` · ${estimated} estimați`;
   if (inProgress) summary += ` · ${inProgress} în curs`;
   summary += ` · actualizat ${new Date().toLocaleTimeString('ro-RO')}`;
   document.getElementById('summary').textContent = summary;
   syncHeadHeight();
 
-  document.getElementById('empty').style.display = pallets.length === 0 ? 'block' : 'none';
-  document.getElementById('tbl').style.display = pallets.length ? 'table' : 'none';
+  document.getElementById('empty').style.display = shown.length === 0 ? 'block' : 'none';
+  document.getElementById('tbl').style.display   = shown.length ? 'table' : 'none';
 
-  document.getElementById('rows').innerHTML = pallets.map(p => {
+  document.getElementById('rows').innerHTML = shown.map(p => {
     const c = bidClass(p);
     const win = p.current_bid ? (p.winning
       ? '<span class="tag tag-green" style="margin-left:4px">câștigăm</span>'
