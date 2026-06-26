@@ -317,8 +317,10 @@ async function estimateOne(sku) {
 async function estimate() {
   const btn = document.getElementById('estimate-btn');
   btn.disabled = true; btn.textContent = 'Se estimează…';
+  // Only tomorrow's unestimated pallets — matches the backend (estimableSKUs).
+  const tomorrowYMD = new Date(Date.now() + 86400000).toLocaleDateString('sv-SE', { timeZone: 'Europe/Bucharest' });
   const toEstimate = new Set(
-    lastPallets.filter(p => !p.estimate_status || p.estimate_status === 'error').map(p => p.sku)
+    lastPallets.filter(p => ymd(p.end_at) === tomorrowYMD && (!p.estimate_status || p.estimate_status === 'error')).map(p => p.sku)
   );
   toEstimate.forEach(sku => pendingSKUs.add(sku));
   const optimistic = lastPallets.map(p => toEstimate.has(p.sku) ? {...p, estimate_status: '', error_message: ''} : p);

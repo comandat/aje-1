@@ -116,8 +116,11 @@ func (a *App) startEstimateAll() int {
 	return len(skus)
 }
 
+// estimableSKUs returns tomorrow's not-yet-estimated pallets only — the big
+// button is "estimează paleții de mâine", so today's tab is never touched.
 func (a *App) estimableSKUs() []string {
-	rows, err := a.db.Query(`SELECT sku FROM pallets WHERE estimate_status IN ('', 'error')`)
+	tomorrow := time.Now().In(tzBucharest).AddDate(0, 0, 1).Format("2006-01-02")
+	rows, err := a.db.Query(`SELECT sku, end_at FROM pallets WHERE estimate_status IN ('', 'error')`)
 	if err != nil {
 		log.Printf("estimableSKUs: %v", err)
 		return nil
@@ -125,8 +128,8 @@ func (a *App) estimableSKUs() []string {
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
-		var sku string
-		if err := rows.Scan(&sku); err == nil {
+		var sku, endAt string
+		if err := rows.Scan(&sku, &endAt); err == nil && bucharestDate(endAt) == tomorrow {
 			out = append(out, sku)
 		}
 	}
