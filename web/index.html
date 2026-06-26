@@ -86,6 +86,12 @@
 
   .empty { text-align: center; padding: 60px 24px; color: var(--gray); }
   .empty p { margin-top: 8px; font-size: 13px; }
+  #tip {
+    display: none; position: fixed; z-index: 9999; pointer-events: none;
+    background: #202124; color: #fff; padding: 8px 12px; border-radius: 6px;
+    font-size: 12px; max-width: 420px; word-break: break-word; line-height: 1.5;
+    box-shadow: 0 3px 10px rgba(0,0,0,.35);
+  }
   .btn-est {
     margin-left: 6px; padding: 2px 9px; font-size: 11px; font-weight: 600;
     background: var(--blue); color: #fff; border: none; border-radius: 4px;
@@ -115,6 +121,7 @@
   <button class="btn btn-primary" id="estimate-btn" onclick="estimate()">Estimează paleții de mâine</button>
 </header>
 
+<div id="tip"></div>
 <div class="wrap">
   <div class="card">
     <div id="empty" class="empty" style="display:none">
@@ -190,7 +197,7 @@ function statusCell(p) {
     case 'done':    pill = '<span class="tag tag-green">complet</span>'; break;
     case 'partial': pill = '<span class="tag tag-yellow">parțial</span>'; break;
     case 'error': {
-      const tip = p.error_message ? ` title="${p.error_message.replace(/"/g,'&quot;')}"` : '';
+      const tip = p.error_message ? ` data-tip="${p.error_message.replace(/"/g,'&quot;')}"` : '';
       pill = `<span class="tag tag-red" style="cursor:help"${tip}>eroare ⓘ</span>`;
       break;
     }
@@ -295,6 +302,20 @@ function syncHeadHeight() {
 }
 syncHeadHeight();
 addEventListener('resize', syncHeadHeight);
+
+const tip = document.getElementById('tip');
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest('[data-tip]');
+  if (el) { tip.textContent = el.dataset.tip; tip.style.display = 'block'; }
+  else tip.style.display = 'none';
+});
+document.addEventListener('mousemove', e => {
+  if (tip.style.display !== 'block') return;
+  const x = Math.min(e.clientX + 14, window.innerWidth  - tip.offsetWidth  - 8);
+  const y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+});
 
 load();
 tick();

@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/estimator .
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates && mkdir -p /data
 COPY --from=builder /app/estimator /estimator
+RUN chmod +x /estimator
 ENV DB_PATH=/data/auctions.db
 EXPOSE 8080
 ENTRYPOINT ["/estimator"]
