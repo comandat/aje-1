@@ -39,32 +39,34 @@ const defaultOurUserID = 59890
 const defaultStateTree = "%5B%22%22%2C%7B%22children%22%3A%5B%5B%22lang%22%2C%22ro%22%2C%22d%22%5D%2C%7B%22children%22%3A%5B%22(website)%22%2C%7B%22children%22%3A%5B%22pages%22%2C%7B%22children%22%3A%5B%22products-on-auction%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%5D%7D%2Cnull%2Cnull%2Ctrue%5D"
 
 type Config struct {
-	Port               string
-	DBPath             string
-	N8NLookupURL       string // n8n webhook: ASINs -> existing initial_estimated_price
-	N8NSaveURL         string // n8n webhook: persist a product to the central DB
-	ManifestToken      string
-	CompetitionURL     string
-	JobalotsNextAction string
-	JobalotsStateTree  string
-	OurUserID          int64
-	DisableCron        bool
-	EstimateTimeout    time.Duration
+	Port                string
+	DBPath              string
+	N8NLookupURL        string // n8n webhook: ASINs -> existing initial_estimated_price
+	N8NSaveURL          string // n8n webhook: persist a product to the central DB
+	ManifestToken       string
+	CompetitionURL      string
+	JobalotsNextAction  string
+	JobalotsStateTree   string
+	OurUserID           int64
+	DisableCron         bool
+	EstimateTimeout     time.Duration
+	EstimateConcurrency int
 }
 
 func loadConfig() Config {
 	return Config{
-		Port:               env("PORT", "8080"),
-		DBPath:             env("DB_PATH", "data/auctions.db"),
-		N8NLookupURL:       os.Getenv("N8N_LOOKUP_URL"),
-		N8NSaveURL:         os.Getenv("N8N_SAVE_URL"),
-		ManifestToken:      os.Getenv("JOBALOTS_MANIFEST_TOKEN"),
-		CompetitionURL:     env("COMPETITION_MODULE_URL", "https://competition-search-module-production.up.railway.app/competition-search"),
-		JobalotsNextAction: env("JOBALOTS_NEXT_ACTION", "7f85c3b96b7f0e4740df33c5cbb862e11a3d68028e"),
-		JobalotsStateTree:  env("JOBALOTS_STATE_TREE", defaultStateTree),
-		OurUserID:          int64(intEnv("OUR_USER_ID", defaultOurUserID)),
-		DisableCron:        os.Getenv("DISABLE_CRON") == "1",
-		EstimateTimeout:    time.Duration(intEnv("ESTIMATE_TIMEOUT_MIN", 15)) * time.Minute,
+		Port:                env("PORT", "8080"),
+		DBPath:              env("DB_PATH", "data/auctions.db"),
+		N8NLookupURL:        os.Getenv("N8N_LOOKUP_URL"),
+		N8NSaveURL:          os.Getenv("N8N_SAVE_URL"),
+		ManifestToken:       os.Getenv("JOBALOTS_MANIFEST_TOKEN"),
+		CompetitionURL:      env("COMPETITION_MODULE_URL", "https://competition-search-module-production.up.railway.app/competition-search"),
+		JobalotsNextAction:  env("JOBALOTS_NEXT_ACTION", "7f85c3b96b7f0e4740df33c5cbb862e11a3d68028e"),
+		JobalotsStateTree:   env("JOBALOTS_STATE_TREE", defaultStateTree),
+		OurUserID:           int64(intEnv("OUR_USER_ID", defaultOurUserID)),
+		DisableCron:         os.Getenv("DISABLE_CRON") == "1",
+		EstimateTimeout:     time.Duration(intEnv("ESTIMATE_TIMEOUT_MIN", 15)) * time.Minute,
+		EstimateConcurrency: intEnv("ESTIMATE_CONCURRENCY", 20),
 	}
 }
 
@@ -87,6 +89,7 @@ func main() {
 	log.Printf("config: competition_url=%s", cfg.CompetitionURL)
 	log.Printf("config: n8n_lookup=%s n8n_save=%s", cfg.N8NLookupURL, cfg.N8NSaveURL)
 	log.Printf("config: manifest_token_set=%v", cfg.ManifestToken != "")
+	log.Printf("config: estimate_concurrency=%d", cfg.EstimateConcurrency)
 	if err := app.serve(); err != nil {
 		log.Fatalf("serve: %v", err)
 	}

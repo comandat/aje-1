@@ -97,7 +97,11 @@ func priceFromProducts(products []compProduct) float64 {
 func (a *App) startEstimateAll() int {
 	skus := a.estimableSKUs()
 	go func() {
-		sem := make(chan struct{}, 4) // ponytail: 4 concurrent manifest pipelines — polite to jobalots.
+		n := a.cfg.EstimateConcurrency
+		if n < 1 {
+			n = 1
+		}
+		sem := make(chan struct{}, n) // concurrent manifest pipelines (ESTIMATE_CONCURRENCY, default 20).
 		var wg sync.WaitGroup
 		for _, sku := range skus {
 			wg.Add(1)
