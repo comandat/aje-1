@@ -27,6 +27,30 @@ func TestPriceFromProducts(t *testing.T) {
 	}
 }
 
+func TestParseKnownPrices(t *testing.T) {
+	cases := map[string]map[string]float64{
+		`[{"asin":"b01","price":"12.5"},{"asin":"B02","price":3}]`: {"B01": 12.5, "B02": 3},
+		`{"asin":"b03","price":7.25}`:                              {"B03": 7.25},
+		`{"data":[{"asin":"b04","price":"9"}]}`:                    {"B04": 9},
+		``:                                                         {},
+		`[]`:                                                       {},
+	}
+	for in, want := range cases {
+		got, err := parseKnownPrices([]byte(in))
+		if err != nil {
+			t.Fatalf("parseKnownPrices(%q): %v", in, err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("parseKnownPrices(%q): want %v, got %v", in, want, got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Fatalf("parseKnownPrices(%q)[%s]: want %v, got %v", in, k, v, got[k])
+			}
+		}
+	}
+}
+
 func TestDeriveManifestSKU(t *testing.T) {
 	cases := map[string]string{
 		"YELLOW3262520260618": "YELLOW32625",

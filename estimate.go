@@ -255,21 +255,65 @@ func (a *App) knownPrices(asins []string) (map[string]float64, error) {
 		}
 		return nil, fmt.Errorf("lookup webhook status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
-	if len(bytes.TrimSpace(b)) == 0 {
-		return out, nil // no known ASINs
+	parsed, err := parseKnownPrices(b)
+	if err != nil {
+		// Log the raw shape so we can see what n8n actually sends.
+		sample := string(b)
+		if len(sample) > 300 {
+			sample = sample[:300]
+		}
+		log.Printf("knownPrices: decode failed, raw response: %s", sample)
+		return nil, err
 	}
+	log.Printf("knownPrices: %d of %d ASINs already have prices in DB", len(parsed), len(asins))
+	return parsed, nil
+}
 
-	var rows []struct {
+// parseKnownPrices accepts the lookup webhook response in whatever shape n8n
+// sends it: a JSON array [{asin,price},...], a single object {asin,price}, or a
+// wrapper {"data":[...]}. Unknown ASIN keys are uppercased to match our items.
+func parseKnownPrices(b []byte) (map[string]float64, error) {
+	out := map[string]float64{}
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		return out, nil
+	}
+	type row struct {
 		ASIN  string    `json:"asin"`
 		Price flexFloat `json:"price"` // Postgres numeric may arrive as string
 	}
-	if err := json.Unmarshal(b, &rows); err != nil {
-		return nil, fmt.Errorf("lookup decode: %w", err)
+	add := func(rs []row) {
+		for _, r := range rs {
+			if r.ASIN != "" {
+				out[strings.ToUpper(r.ASIN)] = float64(r.Price)
+			}
+		}
 	}
-	for _, r := range rows {
-		out[strings.ToUpper(r.ASIN)] = float64(r.Price)
+	switch b[0] {
+	case '[':
+		var rows []row
+		if err := json.Unmarshal(b, &rows); err != nil {
+			return nil, fmt.Errorf("lookup decode array: %w", err)
+		}
+		add(rows)
+	case '{':
+		// Try single row, then {data:[...]}.
+		var single row
+		if err := json.Unmarshal(b, &single); err == nil && single.ASIN != "" {
+			add([]row{single})
+			break
+		}
+		var wrapped struct {
+			Data []row `json:"data"`
+		}
+		if err := json.Unmarshal(b, &wrapped); err == nil && len(wrapped.Data) > 0 {
+			add(wrapped.Data)
+			break
+		}
+		return nil, fmt.Errorf("lookup decode: unrecognized object shape")
+	default:
+		return nil, fmt.Errorf("lookup decode: unexpected response")
 	}
-	log.Printf("knownPrices: %d of %d ASINs already have prices in DB", len(out), len(asins))
 	return out, nil
 }
 
@@ -327,20 +371,26 @@ func (a *App) triggerCompetition(items []ManifestItem) {
 // each ASIN, writes new products to Postgres, marks items resolved, and
 // finalizes any pallet whose ASINs are now all resolved.
 func (a *App) onCompetitionCallback(results []CompetitionResult) {
+	priced, zero := 0, 0
 	for _, r := range results {
 		asin := strings.ToUpper(r.ASIN)
 		price := priceFromProducts(r.Products)
 		if price > 0 {
+			priced++
 			if meta := a.itemMetaByASIN(asin); meta != nil {
 				if err := a.writeProduct(*meta, price, r); err != nil {
 					log.Printf("postgres write %s: %v", asin, err)
 				}
 			}
+		} else {
+			zero++
+			log.Printf("callback %s: 0 price from %d products", asin, len(r.Products))
 		}
 		// Resolve even at price 0 (no competitors found) so the pallet can finalize
 		// — such items contribute 0 and flag the pallet as 'partial'.
 		a.setItemResolved(asin, price)
 	}
+	log.Printf("callback batch: %d results — %d priced, %d zero", len(results), priced, zero)
 	a.finalizeAllReady()
 }
 
@@ -444,11 +494,16 @@ FROM pallet_items WHERE sku=?`, sku).Scan(&total, &nItems, &nPriced); err != nil
 	}
 	recommended := round2(total.Float64 / 2)
 
-	if _, err := a.db.Exec(`
+	res, err := a.db.Exec(`
 UPDATE pallets SET estimated_sale_price=?, recommended_bid=?, estimate_status=?, estimated_at=?, updated_at=?
 WHERE sku=? AND estimate_status='in_progress'`,
-		round2(total.Float64), recommended, status, nowISO(), nowISO(), sku); err != nil {
+		round2(total.Float64), recommended, status, nowISO(), nowISO(), sku)
+	if err != nil {
 		log.Printf("finalize update %s: %v", sku, err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("finalize %s: status=%s total=%.2f priced=%d/%d bid=%.2f", sku, status, round2(total.Float64), nPriced, nItems, recommended)
 	}
 }
 
