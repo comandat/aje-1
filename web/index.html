@@ -223,6 +223,8 @@ function render(pallets) {
   lastPallets = pallets;
   // clean up pending once backend confirms in_progress or final status
   pallets.forEach(p => { if (p.estimate_status) pendingSKUs.delete(p.sku); });
+  // stop fast-polling as soon as nothing is in flight
+  if (!pallets.some(p => p.estimate_status === 'in_progress') && pendingSKUs.size === 0) fastUntil = 0;
   const estimated = pallets.filter(p => p.estimate_status === 'done' || p.estimate_status === 'partial').length;
   const inProgress = pallets.filter(p => p.estimate_status === 'in_progress').length;
   let summary = `${pallets.length} paleți`;
